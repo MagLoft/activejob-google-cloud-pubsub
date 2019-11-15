@@ -16,12 +16,11 @@ module ActiveJob
       end
 
       def enqueue(job, attributes = {})
-        promise = Concurrent::Promise.execute(executor: @executor) do
+        Concurrent::Promise.new(executor: @executor) do
           @pubsub.topic_for(job.queue_name).publish JSON.dump(job.serialize), attributes
-        end
-        promise.rescue do |e|
+        end.rescue do |e|
           @logger&.error e
-        end
+        end.execute
       end
 
       def enqueue_at(job, timestamp)
