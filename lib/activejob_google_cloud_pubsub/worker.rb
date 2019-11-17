@@ -8,8 +8,6 @@ require 'logger'
 module ActiveJob
   module GoogleCloudPubsub
     class Worker
-      MAX_DEADLINE = 10.minutes
-
       using PubsubExtension
 
       def initialize(queue: 'default', pubsub: Google::Cloud::Pubsub.new(timeout: 60), logger: Logger.new($stdout))
@@ -28,6 +26,8 @@ module ActiveJob
           @logger&.error(error)
         end
 
+        @ack_deadline = subscriber.deadline
+
         subscriber.start
 
         sleep
@@ -43,13 +43,14 @@ module ActiveJob
 
       def process(message)
         timer_opts = {
-          execution_interval: MAX_DEADLINE - 10.seconds,
+          # Extend ack deadline when only 10% of allowed time or 5 seconds are left, whichever comes first
+          execution_interval: [(@ack_deadline * 0.9).round, @ack_deadline - 5].min.seconds,
           timeout_interval: 5.seconds,
           run_now: true
         }
 
         delay_timer = Concurrent::TimerTask.execute(timer_opts) do
-          message.modify_ack_deadline! MAX_DEADLINE.to_i
+          message.modify_ack_deadline! @ack_deadline
         end
 
         begin
@@ -70,7 +71,7 @@ module ActiveJob
             @logger&.info "Message(#{message.message_id}) was acknowledged."
           else
             # terminated from outside
-            message.modify_ack_deadline! 0
+            message.reject!
           end
         end
       end
