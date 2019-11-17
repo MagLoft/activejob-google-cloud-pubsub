@@ -28,9 +28,25 @@ module ActiveJob
           @logger&.error(error)
         end
 
+        @quit = false
+        Signal.trap(:QUIT) do
+          @quit = true
+        end
+        Signal.trap(:TERM) do
+          @quit = true
+        end
+        Signal.trap(:INT) do
+          @quit = true
+          end
+
         subscriber.start
 
-        sleep
+        until @quit
+          sleep 1
+        end
+        @logger&.info "Shutting down..."
+        subscriber.stop.wait!
+        @logger&.info "Shut down."
       end
 
       def ensure_subscription
